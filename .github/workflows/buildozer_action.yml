@@ -1,50 +1,57 @@
 on: [push, pull_request]
-
-env:
-  PYTHONFORANDROID_PREREQUISITES_INSTALL_INTERACTIVE: 0
-
-name: Android Integration
+name: Tests
 jobs:
-  Integration:
+  Tests:
+    name: base
     strategy:
       matrix:
+        python:
+           - '3.8'
+           - '3.9'
+           - '3.10'
+           - '3.11'
         os:
           - 'ubuntu-latest'
           - 'macOs-latest'
+        architecture:
+          - 'x64'
+
     runs-on: ${{ matrix.os }}
     steps:
+    - uses: actions/checkout@v4
+
     - name: Setup python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.x'
-    - name: Setup Java
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+        python-version: ${{ matrix.python }}
+
+    - name: Requirements
+      run: |
+        pip install -U coveralls setuptools tox>=2.0
+    - name: Tox
+      run: tox
+    - name: Coveralls
+      env:
+        COVERALLS_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        COVERALLS_SERVICE_NAME: github
+      run: coveralls
+
+  Docker:
+    runs-on: ubuntu-latest
+    steps:
     - uses: actions/checkout@v4
-    - name: Setup environment
-      run: |
-        pip install .
-    - run: buildozer --help
-    - run: buildozer init
-    - name: SDK, NDK and p4a download
-      run: |
-        sed -i.bak "s/# android.accept_sdk_license = False/android.accept_sdk_license = True/" buildozer.spec
-        sed -i.bak "s/#p4a.branch = master/p4a.branch = develop/" buildozer.spec
-        buildozer android p4a -- --help
-    # Install OS specific dependencies
-    - name: Install Linux dependencies
-      if: matrix.os == 'ubuntu-latest'
-      # Required by some p4a recipes, but not
-      # installed by p4a on Linux.
-      run: sudo apt -y install automake        
-    - name: Debug Build
-      run: |
-        touch main.py
-        buildozer android debug
-    - name: Release Build (aab)
-      run: |
-        touch main.py
-        export BUILDOZER_ALLOW_ORG_TEST_DOMAIN=1
-        buildozer android release
+    - name: Docker build
+      run: docker build --tag=kivy/buildozer .
+    - name: Docker run
+      run: docker run kivy/buildozer --version
+
+  Documentation:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Requirements
+      run: pip install -U sphinx
+    - name: Check links
+      run: sphinx-build -b linkcheck docs/source docs/build
+    - name: Generate documentation
+      run: sphinx-build docs/source docs/build
